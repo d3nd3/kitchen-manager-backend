@@ -1,0 +1,23 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json  # Keep this if you want exact dependency versions
+*.log
+
+# Environment variables
+.env
+
+# SQLite database files
+*.sqlite
+*.sqlite3
+kitchen.db  # If you don't want to store the database in Git
+
+# PM2 process files
+pm2/logs/
+pm2/pids/
+pm2/dump.pm2
+
+# System files (macOS, Linux, Windows)
+.DS_Store
+Thumbs.db
