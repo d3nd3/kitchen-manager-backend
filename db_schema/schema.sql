@@ -14,3 +14,8 @@ CREATE TABLE items (
   ean13 TEXT UNIQUE NOT NULL CHECK(LENGTH(ean13) = 13 AND ean13 GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'), -- EAN13 barcode (13 digits)
   image_url TEXT -- URL of the product image (can be NULL)
 );
+
+-- Insert locations
+INSERT INTO locations (name) VALUES ('Fridge');
+INSERT INTO locations (name) VALUES ('Cupboard');
+INSERT INTO locations (name) VALUES ('Freezer');

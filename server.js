@@ -2,22 +2,36 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const cors = require('cors');
 const fs = require('fs');
+const path = require('path');
 
-const db = new Database('kitchen.db'); // SQLite database
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Initialize database tables from schema.sql
-const schemaPath = './db_schema/schema.sql';
-try {
-  const schema = fs.readFileSync(schemaPath, 'utf-8');
-  db.exec(schema);
-  console.log('Database schema initialized successfully.');
-} catch (err) {
-  console.error('Error initializing database schema:', err);
-  // Handle the error appropriately, e.g., exit the process
-  process.exit(1); // Or other error handling
+const dbPath = path.join(__dirname, 'kitchen.db'); // Include __dirname for db path as well
+
+// Check if the database file exists *before* opening it
+const dbExists = fs.existsSync(dbPath);
+
+let db;  // Declare db outside the if block
+
+if (!dbExists) {
+  // Create the database and initialize the schema
+  db = new Database(dbPath); // Now create ONLY if the file doesn't exist.
+  const schemaPath = path.join(__dirname, './db_schema/schema.sql');
+  try {
+    const schema = fs.readFileSync(schemaPath, 'utf-8');
+    db.exec(schema);
+    console.log('Database created and schema initialized successfully.');
+  } catch (err) {
+    console.error('Error initializing database schema:', err);
+    db.close(); // Close the database on error
+    process.exit(1);
+  }
+} else {
+  // Open the existing database
+  db = new Database(dbPath);
+  console.log('Database already exists. Skipping schema initialization.');
 }
 
 
