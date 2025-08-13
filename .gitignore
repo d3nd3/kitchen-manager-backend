@@ -11,7 +11,8 @@ package-lock.json  # Keep this if you want exact dependency versions
 # SQLite database files
 *.sqlite
 *.sqlite3
-kitchen.db  # If you don't want to store the database in Git
+kitchen.db
+# If you don't want to store the database in Git
 
 # PM2 process files
 pm2/logs/
