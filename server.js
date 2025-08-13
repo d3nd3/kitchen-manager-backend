@@ -393,3 +393,40 @@ app.post('/item', (req, res) => {
 
 // Start server
 app.listen(3001, () => console.log('API running on port 3001'));
+
+// Open Food Facts enrichment by EAN13
+app.get('/openfoodfacts/:ean13', async (req, res) => {
+    try {
+        const { ean13 } = req.params;
+        if (!ean13 || !/^\d{13}$/.test(ean13)) {
+            return res.status(400).json({ error: 'Invalid EAN13' });
+        }
+
+        const url = `https://world.openfoodfacts.org/api/v0/product/${ean13}.json`;
+        const response = await fetch(url, { headers: { 'User-Agent': 'kitchen-manager/1.0' } });
+        if (!response.ok) {
+            return res.status(502).json({ error: 'OpenFoodFacts unavailable' });
+        }
+        const data = await response.json();
+        if (!data || data.status !== 1 || !data.product) {
+            return res.status(404).json({ error: 'Product not found in OpenFoodFacts' });
+        }
+
+        const p = data.product;
+        const name = p.product_name || p.generic_name || '';
+        const image_url = p.image_front_url || p.image_url || '';
+        const categoriesTags = Array.isArray(p.categories_tags) ? p.categories_tags : [];
+        const labelsTags = Array.isArray(p.labels_tags) ? p.labels_tags : [];
+        const tags = [...new Set([...categoriesTags, ...labelsTags])]
+            .map(t => String(t).split(':').pop())
+            .filter(Boolean)
+            .map(s => s.replace(/[-_]/g, ' '))
+            .map(s => s.toUpperCase())
+            .slice(0, 12);
+
+        return res.json({ name, image_url, tags });
+    } catch (err) {
+        console.error('OFF fetch error', err);
+        return res.status(500).json({ error: 'Failed to fetch from OpenFoodFacts' });
+    }
+});
