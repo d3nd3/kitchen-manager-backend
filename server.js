@@ -34,6 +34,18 @@ if (!dbExists) {
   console.log('Database already exists. Skipping schema initialization.');
 }
 
+// --- Lightweight migrations ---
+try {
+  const cols = db.prepare("PRAGMA table_info(products)").all();
+  const hasMinStock = cols.some(c => c.name === 'min_stock');
+  if (!hasMinStock) {
+    db.exec("ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 0");
+    console.log('Migrated: added products.min_stock');
+  }
+} catch (e) {
+  console.warn('Migration check failed:', e.message);
+}
+
 
 // Get all locations
 app.get('/locations', (req, res) => {
@@ -87,6 +99,7 @@ app.get('/products', (req, res) => {
         product_code: row.product_code,
         name: row.name,
         image_url: row.image_url,
+        min_stock: row.min_stock ?? 0,
         tags: row.tags ? row.tags.split(',') : [],
       }));
       res.json(products);
@@ -132,6 +145,7 @@ app.get('/products/:id', (req, res) => {
           product_code: row.product_code,
           name: row.name,
           image_url: row.image_url,
+          min_stock: row.min_stock ?? 0,
           tags: row.tags ? row.tags.split(',') : [], // Split tags into array
         };
         res.json(product);
@@ -206,7 +220,7 @@ let validateProduct = (ean13, product_code) => {
 // PUT /products/:id (Update an existing product)
 app.put('/product/:id', (req, res) => {
     const productId = req.params.id;
-    const { product_name, ean13, product_code, image_url, tags } = req.body;
+    const { product_name, ean13, product_code, image_url, tags, min_stock } = req.body;
 
     let nulled_ean13 = ean13 || null;
     let nulled_product_code = product_code || null;
@@ -220,11 +234,12 @@ app.put('/product/:id', (req, res) => {
 
         const updateProductQuery = `
             UPDATE products
-            SET name = ?, ean13 = ?, image_url = ?, product_code = ?
+            SET name = ?, ean13 = ?, image_url = ?, product_code = ?, min_stock = ?
             WHERE id = ?
         `;
         const updateProductStatement = db.prepare(updateProductQuery);
-        updateProductStatement.run(product_name, nulled_ean13, image_url, nulled_product_code, productId);
+        const safeMinStock = Number.isFinite(Number(min_stock)) && Number(min_stock) >= 0 ? Number(min_stock) : 0;
+        updateProductStatement.run(product_name, nulled_ean13, image_url, nulled_product_code, safeMinStock, productId);
 
         //Clear their tags.
         const deleteProductTagsQuery = 'DELETE FROM product_tags WHERE product_id = ?';
@@ -265,7 +280,7 @@ app.put('/product/:id', (req, res) => {
 //a new product
 //TODO: Add automatic getting of Name and ImageURL with HTTP Request.
 app.post('/product', async (req, res) => {
-    const { product_name, ean13, product_code, image_url, tags } = req.body;
+    const { product_name, ean13, product_code, image_url, tags, min_stock } = req.body;
 
     let nulled_ean13 = ean13 || null;
     let nulled_product_code = product_code || null;
@@ -280,10 +295,11 @@ app.post('/product', async (req, res) => {
 
         // Insert the new product into the products table
         const productQuery = `
-            INSERT INTO products (ean13, product_code, name, image_url)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO products (ean13, product_code, name, image_url, min_stock)
+            VALUES (?, ?, ?, ?, ?)
         `;
-        const productParams = [nulled_ean13, nulled_product_code, product_name, image_url];
+        const safeMinStock = Number.isFinite(Number(min_stock)) && Number(min_stock) >= 0 ? Number(min_stock) : 0;
+        const productParams = [nulled_ean13, nulled_product_code, product_name, image_url, safeMinStock];
         const productStatement = db.prepare(productQuery);
         const productResult = productStatement.run(productParams);
         const productId = productResult.lastInsertRowid;
@@ -389,6 +405,37 @@ app.post('/item', (req, res) => {
         console.error("Error adding item:", error);
         res.status(500).json({ error: 'Failed to add item' });
     }
+});
+
+// Alerts: expiring and low stock
+app.get('/alerts', (req, res) => {
+    const now = new Date();
+    const expSoonDays = Number(req.query.expSoonDays || 3);
+    const soonDate = new Date(now.getTime() + expSoonDays * 24 * 3600 * 1000);
+
+    // Expired or expiring items
+    const expiring = db.prepare(`
+      SELECT i.id, i.quantity, i.expiration_date, i.location_id,
+             p.id as product_id, p.name as product_name, p.image_url
+      FROM items i
+      JOIN products p ON p.id = i.product_id
+      WHERE i.expiration_date IS NOT NULL
+        AND date(i.expiration_date) <= date(?)
+      ORDER BY i.expiration_date ASC
+    `).all(soonDate.toISOString().slice(0,10));
+
+    // Low stock by product (sum quantities across locations)
+    const lowStock = db.prepare(`
+      SELECT p.id as product_id, p.name as product_name, p.min_stock,
+             COALESCE(SUM(i.quantity), 0) as total_quantity
+      FROM products p
+      LEFT JOIN items i ON i.product_id = p.id
+      GROUP BY p.id
+      HAVING p.min_stock IS NOT NULL AND p.min_stock > 0 AND total_quantity < p.min_stock
+      ORDER BY total_quantity ASC
+    `).all();
+
+    res.json({ expiring, lowStock });
 });
 
 // Start server
